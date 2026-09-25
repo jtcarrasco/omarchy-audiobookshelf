@@ -474,3 +474,15 @@ def test_check_new_episodes_without_podcast_library_returns_empty(tmp_path):
     with patch.object(abs_backend, "list_library_items") as fetch:
         assert abs_backend.check_new_episodes("http://abs", "tok", "", str(tmp_path / "s.json")) == []
     fetch.assert_not_called()
+
+
+def test_disconnect_clears_token_and_config(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = tmp_path / ".config" / "audiobookshelf-plugin"
+    state = tmp_path / ".local" / "state" / "audiobookshelf-plugin"
+    cfg.mkdir(parents=True); state.mkdir(parents=True)
+    (cfg / "config.json").write_text("{}")
+    with patch("abs_backend.subprocess.run") as run:
+        abs_backend.disconnect()
+    assert run.call_args[0][0][:2] == ["secret-tool", "clear"]
+    assert not cfg.exists() and not state.exists()

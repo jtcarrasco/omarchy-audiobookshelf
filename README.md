@@ -61,6 +61,14 @@ Your password is only sent to your server to get a login token. The token is
 stored in the system keyring (`secret-tool`); only the server URL and library
 IDs are written to `~/.config/audiobookshelf-plugin/config.json`.
 
+### Switching servers or disconnecting
+
+- **Switch server or account:** open the settings (gear) page and connect
+  again. The new login replaces the old one.
+- **Disconnect:** on the settings (gear) page, click **Disconnect** twice to
+  confirm. It stops playback and removes the saved login token and settings
+  from this computer; your account and progress stay on the server.
+
 ## Usage
 
 **Bar icon**

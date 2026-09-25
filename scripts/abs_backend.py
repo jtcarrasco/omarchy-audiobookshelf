@@ -340,6 +340,19 @@ def load_token():
     return result.stdout.decode("utf-8").strip() or None
 
 
+def disconnect() -> None:
+    """Forget this server: clear the keyring token and delete the plugin's
+    config and local state (seen episodes, queued progress). The server
+    account itself is untouched."""
+    subprocess.run(
+        ["secret-tool", "clear", "service", _KEYRING_SERVICE, "account", _KEYRING_ACCOUNT],
+        check=False,
+    )
+    for path in (os.path.expanduser("~/.config/audiobookshelf-plugin"),
+                 os.path.expanduser("~/.local/state/audiobookshelf-plugin")):
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def check_new_episodes(base_url: str, token: str, podcast_library_id: str,
                         seen_state_path: str) -> list:
     """Diff the current podcast library against a persisted seen-episode-id
@@ -522,6 +535,11 @@ if __name__ == "__main__":
         # check-configured runs before the token/config load below too —
         # BarWidget.qml calls it at plugin startup, before it knows whether
         # config.json (and therefore a token) exists at all.
+        if command == "disconnect":
+            disconnect()
+            print(json.dumps({"ok": True}))
+            sys.exit(0)
+
         if command == "check-configured":
             configured = is_plugin_configured()
             cfg = {}

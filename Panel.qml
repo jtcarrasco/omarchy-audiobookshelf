@@ -67,6 +67,7 @@ Panel {
   property bool episodesLoading: false
 
   property string setupError: ""
+  property bool confirmDisconnect: false
   property bool setupBusy: false
   property string pendingPassword: ""
 
@@ -233,6 +234,34 @@ Panel {
   Component.onCompleted: checkConfigured.running = true
 
   Player { id: player }
+
+  Process {
+    id: disconnectProcess
+    command: root.backend(["disconnect"])
+    stdout: StdioCollector {
+      onStreamFinished: {
+        player.reset()
+        root.configured = false
+        root.serverUrl = ""
+        root.bookLibId = ""
+        root.podcastLibId = ""
+        root.libraries = []
+        root.allItems = []
+        root.episodes = []
+        root.openPodcast = null
+        root.browsing = false
+        root.confirmDisconnect = false
+        root.settingsView = true
+      }
+    }
+  }
+
+  // Disconnect asks for a second click within a few seconds.
+  Timer {
+    id: confirmTimer
+    interval: 4000
+    onTriggered: root.confirmDisconnect = false
+  }
 
   Process {
     id: listLibraries
@@ -630,6 +659,35 @@ Panel {
             root.setupBusy = true
             root.pendingPassword = passField.text
             mpvCheck.running = true
+          }
+        }
+
+        PanelSeparator { visible: root.configured; Layout.fillWidth: true; foreground: root.fg }
+
+        Text {
+          visible: root.configured
+          Layout.fillWidth: true
+          wrapMode: Text.WordWrap
+          text: "Disconnect removes this server's login and settings from this computer. Your Audiobookshelf account and progress stay on the server."
+          color: root.mutedFg
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+
+        Button {
+          visible: root.configured
+          text: root.confirmDisconnect ? "Click again to disconnect" : "Disconnect"
+          bordered: true
+          foreground: root.confirmDisconnect ? Color.urgent : root.fg
+          fontFamily: root.fontFamily
+          onClicked: {
+            if (!root.confirmDisconnect) {
+              root.confirmDisconnect = true
+              confirmTimer.restart()
+              return
+            }
+            confirmTimer.stop()
+            disconnectProcess.running = true
           }
         }
       }

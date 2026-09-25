@@ -98,6 +98,17 @@ Item {
     getProgressProcess.running = true
   }
 
+  // Stop and forget the current item (used on disconnect).
+  function reset() {
+    if (state.hasItem) mpvInstance.send(["stop"])
+    state.currentItem = null
+    state.currentEpisode = null
+    state.chapters = []
+    state.duration = 0
+    state.errorText = ""
+    state.loading = false
+  }
+
   function togglePause() {
     if (!state.hasItem) return
     mpvInstance.setPaused(mpvInstance.playing)
