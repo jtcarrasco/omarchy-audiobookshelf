@@ -38,7 +38,7 @@ control playback from a dropdown that matches your Omarchy theme.
 
 - An Audiobookshelf server you can log into
 - [mpv](https://mpv.io/), installed from your distribution's `mpv` package (setup checks for it)
-- `python3` and `secret-tool` (both ship with Omarchy)
+- `python3`, `secret-tool` and a running keyring that provides the Secret Service, such as gnome-keyring (all ship with Omarchy; minimal installs may need `gnome-keyring`)
 
 ## Install
 

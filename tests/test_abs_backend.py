@@ -1,5 +1,7 @@
 import json
 import sys
+
+import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, call
 from urllib.error import HTTPError
@@ -435,7 +437,7 @@ def test_html_to_text_strips_tags_and_keeps_paragraph_breaks():
 
 def test_cover_url_resizes_and_appends_token():
     url = abs_backend.cover_url("http://abs/", "t/k", "item1")
-    assert url == "http://abs/api/items/item1/cover?width=160&format=webp&token=t%2Fk"
+    assert url == "http://abs/api/items/item1/cover?width=160&format=jpeg&token=t%2Fk"
 
 
 def test_set_finished_patches_progress_key():
@@ -486,3 +488,34 @@ def test_disconnect_clears_token_and_config(tmp_path, monkeypatch):
         abs_backend.disconnect()
     assert run.call_args[0][0][:2] == ["secret-tool", "clear"]
     assert not cfg.exists() and not state.exists()
+
+
+def test_dms_copies_match_shared_sources():
+    # dms/ ships copies of the shell-independent files; tools/sync-dms.sh keeps them in step.
+    root = Path(__file__).resolve().parents[1]
+    for rel in ["Player.qml", "MpvPlayer.qml", "PollTimer.qml", "Model.js", "scripts/abs_backend.py"]:
+        assert (root / rel).read_bytes() == (root / "dms" / rel).read_bytes(), f"dms/{rel} is stale; run tools/sync-dms.sh"
+
+
+def test_normalize_base_url_adds_scheme_and_trims_slash():
+    assert abs_backend.normalize_base_url(" 10.0.0.5:13378/ ") == "http://10.0.0.5:13378"
+    assert abs_backend.normalize_base_url("https://abs.example.com/") == "https://abs.example.com"
+
+
+def test_check_is_abs_rejects_other_web_apps():
+    resp = MagicMock()
+    resp.__enter__.return_value.read.return_value = b"<html>dashboard</html>"
+    with patch.object(abs_backend, "urlopen", return_value=resp):
+        with pytest.raises(abs_backend.AbsAuthError, match="isn't an Audiobookshelf server"):
+            abs_backend.check_is_abs("https://dash.example")
+    ok = MagicMock()
+    ok.__enter__.return_value.read.return_value = b'{"success": true}'
+    with patch.object(abs_backend, "urlopen", return_value=ok):
+        abs_backend.check_is_abs("http://abs.example")
+
+
+def test_store_token_reports_missing_keyring():
+    err = abs_backend.subprocess.CalledProcessError(1, ["secret-tool"])
+    with patch("abs_backend.subprocess.run", side_effect=err):
+        with pytest.raises(abs_backend.AbsAuthError, match="no system keyring"):
+            abs_backend.store_token("tok")

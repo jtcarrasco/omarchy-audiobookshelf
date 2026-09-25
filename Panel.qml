@@ -399,7 +399,7 @@ Panel {
           var result = JSON.parse(text)
           if (result.ok) {
             passField.text = ""
-            root.serverUrl = urlField.text.trim().replace(/\/+$/, "")
+            root.serverUrl = result.baseUrl || urlField.text.trim().replace(/\/+$/, "")
             root.libraries = result.libraries || []
             root.bookLibId = result.libraryId || ""
             root.podcastLibId = result.podcastLibraryId || ""

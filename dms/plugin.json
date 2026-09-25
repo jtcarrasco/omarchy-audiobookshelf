@@ -1,0 +1,26 @@
+{
+  "id": "absPlayer",
+  "name": "Audiobookshelf",
+  "description": "Audiobookshelf client for DankBar: books and podcasts, resume and progress sync, chapters, covers, and a themed popout player.",
+  "version": "0.1.0",
+  "author": "Jason Carrasco",
+  "icon": "headphones",
+  "type": "widget",
+  "capabilities": [
+    "dankbar-widget"
+  ],
+  "component": "./AbsWidget.qml",
+  "requires_dms": ">=1.6.0",
+  "dependencies": [
+    "mpv",
+    "python3",
+    "secret-tool",
+    "gnome-keyring"
+  ],
+  "permissions": [
+    "settings_read",
+    "settings_write",
+    "process",
+    "network"
+  ]
+}
