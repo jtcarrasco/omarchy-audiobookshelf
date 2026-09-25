@@ -373,7 +373,7 @@ Panel {
         if (!installed) {
           root.setupBusy = false
           root.pendingPassword = ""
-          root.setupError = "mpv is required but not installed. Run: sudo pacman -S mpv"
+          root.setupError = "mpv is required but not installed. Install the mpv package, then connect again."
           return
         }
         loginProcess.command = root.backend(["login", urlField.text.trim(), userField.text.trim()])

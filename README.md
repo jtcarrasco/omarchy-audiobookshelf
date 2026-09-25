@@ -37,7 +37,7 @@ control playback from a dropdown that matches your Omarchy theme.
 ## Requirements
 
 - An Audiobookshelf server you can log into
-- [mpv](https://mpv.io/): `sudo pacman -S mpv` (setup checks for it)
+- [mpv](https://mpv.io/), installed from your distribution's `mpv` package (setup checks for it)
 - `python3` and `secret-tool` (both ship with Omarchy)
 
 ## Install
