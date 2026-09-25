@@ -1,0 +1,15 @@
+# Local dev/test artifacts
+__pycache__/
+*.pyc
+.pytest_cache/
+*.sock
+
+# Never commit real credentials or a live library cache
+*.token
+library-cache.json
+
+# Development/infrastructure
+.superpowers/
+config.json
+.worktrees/
+.venv/
