@@ -115,8 +115,15 @@ Panel {
     root.opened ? root.close() : root.open()
   }
 
+  // The refresh icon spins while the library loads, and for at least a
+  // moment so a fast refresh still registers.
+  readonly property bool refreshing: root.itemsLoading || spinHold.running
+  Timer { id: spinHold; interval: 600 }
+
   function refresh() {
-    if (!root.configured || fetchItems.running) return
+    if (!root.configured) return
+    spinHold.restart()
+    if (fetchItems.running) return
     root.itemsLoading = true
     root.listError = ""
     fetchItems.running = true
@@ -678,10 +685,25 @@ Panel {
 
         PanelActionButton {
           visible: root.configured && !root.settingsView
-          iconText: "󰑐"
+          // The glyph moves to the spinning copy below while refreshing.
+          iconText: root.refreshing ? "" : "󰑐"
           tooltipText: "Refresh library (q / R)"
           foreground: root.fg
           onClicked: root.refresh()
+          Text {
+            anchors.centerIn: parent
+            visible: root.refreshing
+            text: "󰑐"
+            color: root.fg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.icon
+            RotationAnimation on rotation {
+              running: root.refreshing
+              from: 0; to: 360
+              duration: 900
+              loops: Animation.Infinite
+            }
+          }
         }
 
         PanelActionButton {

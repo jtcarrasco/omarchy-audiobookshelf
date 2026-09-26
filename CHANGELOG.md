@@ -14,6 +14,7 @@
   the header reads "Settings" once connected. Button tooltips show their keys.
 - Esc in the pop-out window returns to the dropdown instead of leaving the
   window open.
+- The refresh icon spins while the library reloads (click, `q` or `R`).
 - Fix: the two player layouts kept separate speed selections and could
   disagree; speed is now one shared value.
 
