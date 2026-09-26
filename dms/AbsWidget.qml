@@ -48,6 +48,10 @@ PluginComponent {
   property bool chaptersOpen: false
   property bool notesOpen: false
   property real speed: 1
+  // Keyboard selection in the library/episode list; the highlight only shows
+  // once a key has moved it.
+  property int cursor: 0
+  property bool keyNav: false
 
   property string setupError: ""
   property bool setupBusy: false
@@ -70,8 +74,14 @@ PluginComponent {
   }
 
   // ---- Actions -------------------------------------------------------------
+  // The refresh icon spins while the library loads, for at least a moment.
+  readonly property bool refreshing: itemsLoading || spinHold.running
+  Timer { id: spinHold; interval: 600 }
+
   function refresh() {
-    if (!configured || fetchItems.running) return
+    if (!configured) return
+    spinHold.restart()
+    if (fetchItems.running) return
     itemsLoading = true
     listError = ""
     fetchItems.running = true
@@ -84,6 +94,8 @@ PluginComponent {
     filterType = defaultType
     filterText = ""
     browsing = false
+    keyNav = false
+    cursor = 0
   }
 
   function goBack() {
@@ -165,6 +177,72 @@ PluginComponent {
       allItems = allItems.map(function(it) { return it.id === item.id ? patch(it) : it })
     }
   }
+
+  // ---- Keyboard (same keys as the Omarchy plugin; no window toggle here) ---
+  readonly property var listModel: openPodcast ? episodes : visibleItems
+  readonly property bool listVisible: !settingsView && !onHome
+  onOpenPodcastChanged: cursor = 0
+  onFilterTypeChanged: cursor = 0
+  onFilterTextChanged: cursor = 0
+
+  function moveCursor(delta) {
+    if (!listVisible || listModel.length === 0) return false
+    keyNav = true
+    cursor = Math.max(0, Math.min(listModel.length - 1, cursor + delta))
+    return true
+  }
+  function jumpTo(first) {
+    if (!listVisible || listModel.length === 0) return false
+    keyNav = true
+    cursor = first ? 0 : listModel.length - 1
+    return true
+  }
+  // Enter: same as clicking the selected row.
+  function activateSelected() {
+    var it = listModel[cursor]
+    if (!listVisible || !it) return false
+    if (openPodcast) playEpisode(it)
+    else openItem(it)
+    return true
+  }
+  // r / f: same as right-clicking the selected row.
+  function toggleFinishedSelected() {
+    var it = listModel[cursor]
+    if (!listVisible || !it) return
+    if (openPodcast) toggleFinished(openPodcast, it)
+    else if (it.mediaType !== "podcast") toggleFinished(it, null)
+  }
+  function skipChapter(direction) {
+    var target = Model.chapterSeekTarget(player.chapters, player.position, direction)
+    if (target >= 0) player.seekTo(target)
+  }
+  function setSpeed(value) {
+    speed = value
+    player.mpv.setSpeed(value)
+  }
+  function cycleType() {
+    if (!browsing || openPodcast || typeOptions.length < 2) return
+    filterType = filterType === "book" ? "podcast" : "book"
+  }
+
+  readonly property var keyHelp: [
+    { key: "j / k", action: "Move down / up the list" },
+    { key: "Home / End", action: "First / last item" },
+    { key: "Enter", action: "Play, or open a podcast" },
+    { key: "r / f", action: "Toggle finished" },
+    { key: "1 / 2 / 3", action: "Home / Books / Podcasts" },
+    { key: "Tab", action: "Switch Books / Podcasts" },
+    { key: "Space", action: "Play / pause" },
+    { key: "h / l", action: "Back / forward 30s" },
+    { key: "n / p", action: "Next / previous chapter" },
+    { key: "[ / ]", action: "Slower / faster" },
+    { key: "c", action: "Show chapters" },
+    { key: "/ or a", action: "Search" },
+    { key: "q / R", action: "Refresh library" },
+    { key: ",", action: "Settings" },
+    { key: "Esc", action: "Back, then close" },
+    { key: "Right-click", action: "Toggle finished on a row" }
+  ]
 
   function chooseLibrary(mediaType, id) {
     if (mediaType === "book") bookLibId = id
@@ -393,6 +471,58 @@ PluginComponent {
       Item {
         id: bodyHost
         width: parent.width
+        // DMS's popout container takes focus when it opens and only handles
+        // Esc (close). This item takes focus right after it and handles the
+        // plugin's keys; anything it doesn't accept (Esc with nothing to go
+        // back from) bubbles up to the container. Keys the text fields don't
+        // use bubble up here too.
+        focus: true
+        Timer { id: grabFocus; interval: 50; running: true; onTriggered: bodyHost.forceActiveFocus() }
+
+        function anyFieldFocused() {
+          return searchField.getActiveFocus() || urlField.getActiveFocus()
+            || userField.getActiveFocus() || passField.getActiveFocus()
+        }
+        function moved(ok) { if (ok) itemList.positionViewAtIndex(root.cursor, ListView.Contain) }
+
+        Keys.onPressed: function(event) {
+          var k = event.key
+          var t = event.text
+          if (anyFieldFocused()) {
+            // Leave a field: Esc anywhere, Down from search into the list.
+            if (k === Qt.Key_Escape || (k === Qt.Key_Down && searchField.getActiveFocus())) {
+              bodyHost.forceActiveFocus()
+              if (k === Qt.Key_Down) moved(root.moveCursor(0))
+              event.accepted = true
+            }
+            return
+          }
+          event.accepted = true
+          if (k === Qt.Key_Escape) event.accepted = root.goBack()
+          else if (k === Qt.Key_Down || t === "j") moved(root.moveCursor(1))
+          else if (k === Qt.Key_Up || t === "k") moved(root.moveCursor(-1))
+          else if (k === Qt.Key_Home) moved(root.jumpTo(true))
+          else if (k === Qt.Key_End) moved(root.jumpTo(false))
+          else if (k === Qt.Key_Return || k === Qt.Key_Enter) { if (!root.activateSelected()) player.togglePause() }
+          else if (k === Qt.Key_Space) player.togglePause()
+          else if (k === Qt.Key_Left || t === "h") player.skip(-30)
+          else if (k === Qt.Key_Right || t === "l") player.skip(30)
+          else if (k === Qt.Key_Tab || k === Qt.Key_Backtab) root.cycleType()
+          else if (t === "/" || t === "a") { if (root.configured && !root.settingsView && root.openPodcast === null) searchField.forceActiveFocus() }
+          else if (t === "q" || t === "R") root.refresh()
+          else if (t === "r" || t === "f") root.toggleFinishedSelected()
+          else if (t === "n") root.skipChapter(1)
+          else if (t === "p") root.skipChapter(-1)
+          else if (t === "[") root.setSpeed(Number(Model.stepSpeed(root.speed, -1)))
+          else if (t === "]") root.setSpeed(Number(Model.stepSpeed(root.speed, 1)))
+          else if (t === "c") { if (player.chapters.length > 0) root.chaptersOpen = !root.chaptersOpen }
+          else if (t === "1") { if (root.configured) root.goHome() }
+          else if (t === "2") { if (root.hasBooks) root.browseType("book") }
+          else if (t === "3") { if (root.hasPodcasts) root.browseType("podcast") }
+          else if (t === ",") { if (root.configured) root.settingsView = !root.settingsView }
+          else event.accepted = false
+        }
+
         // Home and settings size to their content; lists get a fixed height.
         readonly property bool compact: root.onHome || root.settingsView
         implicitHeight: compact ? body.implicitHeight + Theme.spacingM : 720
@@ -413,13 +543,13 @@ PluginComponent {
             DankActionButton {
               visible: !root.onHome
               iconName: "arrow_back"
-              tooltipText: "Back"
+              tooltipText: "Back (Esc)"
               onClicked: root.goBack()
             }
 
             StyledText {
               Layout.fillWidth: true
-              text: root.settingsView ? "Connect to Audiobookshelf"
+              text: root.settingsView ? (root.configured ? "Settings" : "Connect to Audiobookshelf")
                 : root.openPodcast ? root.openPodcast.media.metadata.title
                 : root.browsing ? (root.filterType === "podcast" ? "Podcasts" : root.filterType === "book" ? "Books" : "Search")
                 : ""
@@ -432,24 +562,34 @@ PluginComponent {
             DankActionButton {
               visible: root.configured
               iconName: "home"
-              tooltipText: "Library home"
+              tooltipText: "Library home (1)"
               onClicked: root.goHome()
             }
             DankActionButton {
+              id: refreshButton
               visible: root.configured && !root.settingsView
               iconName: "refresh"
-              tooltipText: "Refresh library"
+              tooltipText: "Refresh library (q / R)"
               onClicked: root.refresh()
+              // The button is circular, so spinning the whole thing reads as
+              // a spinning icon.
+              RotationAnimation on rotation {
+                running: root.refreshing
+                from: 0; to: 360
+                duration: 900
+                loops: Animation.Infinite
+                onRunningChanged: if (!running) refreshButton.rotation = 0
+              }
             }
             DankActionButton {
               visible: root.configured
               iconName: "settings"
-              tooltipText: "Connection settings"
+              tooltipText: "Settings (,)"
               onClicked: root.settingsView = !root.settingsView
             }
             DankActionButton {
               iconName: "close"
-              tooltipText: "Close"
+              tooltipText: "Close (Esc)"
               onClicked: pop.closePopout && pop.closePopout()
             }
           }
@@ -541,6 +681,61 @@ PluginComponent {
                 disconnectProcess.running = true
               }
             }
+
+            // Keyboard reference, same keys as the Omarchy plugin.
+            StyledText {
+              Layout.fillWidth: true
+              Layout.topMargin: Theme.spacingM
+              text: "Keyboard"
+              font.pixelSize: Theme.fontSizeMedium
+              font.weight: Font.Bold
+              color: Theme.surfaceText
+            }
+            TextMetrics { id: keyChipProbe; text: "Right-click"; font.pixelSize: Theme.fontSizeSmall; font.weight: Font.Bold }
+            GridLayout {
+              Layout.fillWidth: true
+              columns: 4
+              columnSpacing: Theme.spacingM
+              rowSpacing: Theme.spacingXS
+              Repeater {
+                model: root.keyHelp
+                delegate: Item {
+                  required property var modelData
+                  // Each entry spans two cells: a key chip, then its action.
+                  Layout.columnSpan: 2
+                  Layout.fillWidth: true
+                  implicitHeight: Math.max(keyChip.height, actionText.implicitHeight)
+                  Rectangle {
+                    id: keyChip
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: keyChipProbe.advanceWidth + Theme.spacingM * 2
+                    height: keyText.implicitHeight + Theme.spacingXS * 2
+                    radius: Theme.cornerRadius
+                    color: Theme.surfaceContainerHigh
+                    StyledText {
+                      id: keyText
+                      anchors.centerIn: parent
+                      text: modelData.key
+                      font.pixelSize: Theme.fontSizeSmall
+                      font.weight: Font.Bold
+                      color: Theme.primary
+                    }
+                  }
+                  StyledText {
+                    id: actionText
+                    anchors.left: keyChip.right
+                    anchors.leftMargin: Theme.spacingS
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: modelData.action
+                    elide: Text.ElideRight
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceText
+                  }
+                }
+              }
+            }
           }
 
           // ---- Home: big player, or the logo when nothing is loaded ---------
@@ -604,7 +799,7 @@ PluginComponent {
             DankTextField {
               id: searchField
               Layout.fillWidth: true
-              placeholderText: "Search title or author"
+              placeholderText: "Search title or author  (/ or a)"
               leftIconName: "search"
               showClearButton: true
               text: root.filterText
@@ -648,6 +843,7 @@ PluginComponent {
             model: root.openPodcast ? root.episodes : root.visibleItems
             delegate: ListRow {
               width: itemList.width
+              selected: root.keyNav && index === root.cursor
               readonly property var prog: modelData.userProgress || null
               cover: root.openPodcast ? "" : (modelData.coverUrl || "")
               icon: root.openPodcast ? "graphic_eq" : (modelData.mediaType === "podcast" ? "podcasts" : "book_2")
@@ -666,7 +862,7 @@ PluginComponent {
               progressFraction: (prog && !prog.isFinished && prog.progress > 0) ? prog.progress : -1
               finished: prog !== null && prog.isFinished === true
               tooltip: (root.openPodcast || modelData.mediaType !== "podcast")
-                ? (finished ? "Right-click to mark as not finished (restarts from 0:00)" : "Right-click to mark as finished")
+                ? (finished ? "Right-click or r / f to mark as not finished (restarts from 0:00)" : "Right-click or r / f to mark as finished")
                 : ""
               onActivated: root.openPodcast ? root.playEpisode(modelData) : root.openItem(modelData)
               onContextActivated: {
@@ -788,16 +984,16 @@ PluginComponent {
       Layout.fillWidth: true
       spacing: Theme.spacingS
       Item { visible: np.large; Layout.fillWidth: true }
-      DankActionButton { iconName: "replay_30"; buttonSize: np.large ? 44 : 32; iconSize: np.large ? 28 : 20; tooltipText: "Back 30s"; onClicked: player.skip(-30) }
+      DankActionButton { iconName: "replay_30"; buttonSize: np.large ? 44 : 32; iconSize: np.large ? 28 : 20; tooltipText: "Back 30s (h)"; onClicked: player.skip(-30) }
       DankActionButton {
         iconName: player.playing ? "pause" : "play_arrow"
         buttonSize: np.large ? 60 : 40
         iconSize: np.large ? 40 : 26
         iconColor: Theme.primary
-        tooltipText: player.playing ? "Pause" : "Play"
+        tooltipText: player.playing ? "Pause (Space)" : "Play (Space)"
         onClicked: player.togglePause()
       }
-      DankActionButton { iconName: "forward_30"; buttonSize: np.large ? 44 : 32; iconSize: np.large ? 28 : 20; tooltipText: "Forward 30s"; onClicked: player.skip(30) }
+      DankActionButton { iconName: "forward_30"; buttonSize: np.large ? 44 : 32; iconSize: np.large ? 28 : 20; tooltipText: "Forward 30s (l)"; onClicked: player.skip(30) }
       Item { Layout.fillWidth: true }
       // The group doesn't move its own highlight, so currentIndex is bound to
       // root.speed (which also survives the popout being rebuilt).
@@ -808,8 +1004,7 @@ PluginComponent {
         currentIndex: speeds.indexOf(root.speed)
         onSelectionChanged: function(index, selected) {
           if (!selected) return
-          root.speed = speeds[index]
-          player.mpv.setSpeed(root.speed)
+          root.setSpeed(speeds[index])
         }
       }
     }
@@ -894,6 +1089,7 @@ PluginComponent {
     property bool marker: false
     property bool finished: false
     property real progressFraction: -1
+    property bool selected: false
     signal activated()
     signal contextActivated()
 
@@ -904,7 +1100,19 @@ PluginComponent {
       anchors.fill: parent
       radius: Theme.cornerRadius
       color: row.current ? Theme.primarySelected
-        : (mouse.containsMouse ? Theme.surfaceHover : "transparent")
+        : ((mouse.containsMouse || row.selected) ? Theme.surfaceHover : "transparent")
+    }
+    // Keyboard selection: a thin primary-colored bar on the left edge.
+    Rectangle {
+      visible: row.selected
+      anchors.left: parent.left
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      anchors.topMargin: Theme.spacingXS
+      anchors.bottomMargin: Theme.spacingXS
+      width: 3
+      radius: 1.5
+      color: Theme.primary
     }
 
     Rectangle {

@@ -15,6 +15,10 @@
 - Esc in the pop-out window returns to the dropdown instead of leaving the
   window open.
 - The refresh icon spins while the library reloads (click, `q` or `R`).
+- DMS popout gets the same keys (all but `z`, which DMS has no window for),
+  the keyboard reference in settings, key hints in tooltips, a spinning refresh
+  button and one shared speed value. It takes focus from DMS's popout container
+  right after opening; Esc with nothing to go back from still closes it.
 - Fix: the two player layouts kept separate speed selections and could
   disagree; speed is now one shared value.
 
