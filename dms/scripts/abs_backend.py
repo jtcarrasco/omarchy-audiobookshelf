@@ -164,6 +164,31 @@ def cover_url(base_url: str, token: str, item_id: str, width: int = 160) -> str:
             + quote(token, safe=""))
 
 
+COVER_CACHE_DIR = os.path.expanduser("~/.cache/audiobookshelf-plugin/covers")
+
+
+def cache_cover(base_url: str, token: str, item_id: str) -> str:
+    """Download an item's cover to a local file and return its path, or "" on
+    failure. MPRIS bridges like mpv-mpris only publish cover art for remote
+    streams when mpv's cover-art-files points at a local image."""
+    os.makedirs(COVER_CACHE_DIR, exist_ok=True)
+    path = os.path.join(COVER_CACHE_DIR, f"{item_id}.jpg")
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    try:
+        with urlopen(Request(cover_url(base_url, token, item_id, width=512)), timeout=10) as response:
+            data = response.read()
+    except (HTTPError, URLError):
+        return ""
+    if not data:
+        return ""
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+    return path
+
+
 def set_finished(base_url: str, token: str, progress_key: str, finished: bool) -> None:
     """PATCH /api/me/progress/<key> {isFinished}. <key> is an item id, or
     <itemId>/<episodeId> for a podcast episode."""
@@ -686,6 +711,7 @@ if __name__ == "__main__":
             tracks = session.get("audioTracks") or []
             session["streamUrl"] = (
                 resolve_stream_url(base_url, token, tracks[0]["contentUrl"]) if tracks else None)
+            session["coverPath"] = cache_cover(base_url, token, item_id)
             print(json.dumps(session))
         elif command == "sync-progress":
             item_id, current_time, duration, is_finished = sys.argv[2], float(sys.argv[3]), \

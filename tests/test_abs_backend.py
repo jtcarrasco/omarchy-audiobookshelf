@@ -519,3 +519,15 @@ def test_store_token_reports_missing_keyring():
     with patch("abs_backend.subprocess.run", side_effect=err):
         with pytest.raises(abs_backend.AbsAuthError, match="no system keyring"):
             abs_backend.store_token("tok")
+
+
+def test_cache_cover_downloads_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(abs_backend, "COVER_CACHE_DIR", str(tmp_path))
+    resp = MagicMock()
+    resp.__enter__.return_value.read.return_value = b"\xff\xd8jpeg"
+    with patch.object(abs_backend, "urlopen", return_value=resp) as fetch:
+        first = abs_backend.cache_cover("http://abs", "tok", "item1")
+        second = abs_backend.cache_cover("http://abs", "tok", "item1")
+    assert first == second == str(tmp_path / "item1.jpg")
+    assert (tmp_path / "item1.jpg").read_bytes() == b"\xff\xd8jpeg"
+    assert fetch.call_count == 1

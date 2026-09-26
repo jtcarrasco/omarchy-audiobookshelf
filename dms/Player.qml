@@ -207,6 +207,12 @@ Item {
         state.chapters = session.chapters || []
         console.log("audiobookshelf: session ready, loading into mpv (socket connected:",
           mpvInstance.socketReady + ")")
+        // MPRIS players (DMS media widget, Omarchy's, media keys) show mpv's
+        // media title; without this it is the stream's file id.
+        mpvInstance.send(["set_property", "force-media-title", state.title])
+        // mpv-mpris only publishes cover art for remote streams from a local
+        // cover-art-files image; the backend caches the cover for us.
+        mpvInstance.send(["set_property", "cover-art-files", session.coverPath || ""])
         mpvInstance.load(session.streamUrl)
       }
     }
