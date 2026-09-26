@@ -816,6 +816,7 @@ PluginComponent {
                 backgroundColor: root.browsing && root.filterType === modelData ? Theme.primary : Theme.surfaceContainerHigh
                 textColor: root.browsing && root.filterType === modelData ? Theme.primaryText : Theme.surfaceText
                 onClicked: root.browseType(modelData)
+                HoverTip { text: modelData === "book" ? "Books (2)" : "Podcasts (3)" }
               }
             }
           }
@@ -873,6 +874,26 @@ PluginComponent {
           }
         }
       }
+    }
+  }
+
+  // DankButton has no tooltip of its own; this shows one after a short hover,
+  // the same way the list rows do. Place it inside the button.
+  component HoverTip: Item {
+    id: tipRoot
+    property string text: ""
+    // The button this sits in.
+    readonly property Item host: parent
+    anchors.fill: parent
+    DankTooltipV2 { id: hoverTip }
+    Timer {
+      interval: 600
+      running: tipRoot.host !== null && tipRoot.host.hovered === true && tipRoot.text !== ""
+      onTriggered: hoverTip.show(tipRoot.text, tipRoot.host, 0, 0, "top")
+    }
+    Connections {
+      target: tipRoot.host
+      function onHoveredChanged() { if (!tipRoot.host.hovered) hoverTip.hide() }
     }
   }
 
@@ -1019,6 +1040,7 @@ PluginComponent {
       text: (root.chaptersOpen ? "Hide chapters" : "Chapters")
         + (player.currentChapterIndex >= 0 ? "  ·  " + player.chapters[player.currentChapterIndex].title : "")
       onClicked: root.chaptersOpen = !root.chaptersOpen
+      HoverTip { text: "Show or hide chapters (c)" }
     }
 
     DankListView {
