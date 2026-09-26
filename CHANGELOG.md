@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Keyboard-first navigation, matching the FreshRSS plugin's keys where they
+  overlap: `j`/`k` and Home/End to move through the list, Enter to play or open,
+  `r`/`f` to toggle finished, `1`/`2`/`3` for Home/Books/Podcasts, Tab to switch
+  type, `h`/`l` to skip 30s, `n`/`p` for chapters, `[`/`]` for speed, `c` for the
+  chapter list, `/` or `a` to search, `q`/`R` to refresh, `z` for the pop-out
+  window and `,` for settings.
+- **Changed:** `r` now toggles finished (FreshRSS's "mark read"); refresh moved
+  to `q` / `R`.
+- Keyboard reference at the bottom of the settings page, which now scrolls;
+  the header reads "Settings" once connected. Button tooltips show their keys.
+- Esc in the pop-out window returns to the dropdown instead of leaving the
+  window open.
+- Fix: the two player layouts kept separate speed selections and could
+  disagree; speed is now one shared value.
+
 ## 0.2.0 (unreleased)
 
 Rebuilt after the first hands-on test on Omarchy.

@@ -30,6 +30,8 @@ Item {
   function shouldSeekOnResume(fileLoaded, progressReady, pendingResumeSeconds) {
     return Model.shouldSeekOnResume(fileLoaded, progressReady, pendingResumeSeconds)
   }
+  function chapterSeekTarget(chapters, position, direction) { return Model.chapterSeekTarget(chapters, position, direction) }
+  function stepSpeed(current, direction) { return Model.stepSpeed(current, direction) }
 }
 ''', QUrl.fromLocalFile(str(ROOT / "tests" / "harness.qml")))
     obj = component.create()
@@ -88,3 +90,26 @@ def test_should_seek_false_when_both_ready_but_no_saved_position(model):
 
 def test_should_seek_false_before_either_side_is_ready(model):
     assert model.shouldSeekOnResume(False, False, -1) is False
+
+
+CHAPTERS = [{"start": 0}, {"start": 100}, {"start": 250}]
+
+
+def test_chapter_forward_goes_to_next_start(model):
+    assert model.chapterSeekTarget(CHAPTERS, 120, 1) == 250
+    assert model.chapterSeekTarget(CHAPTERS, 260, 1) == -1
+
+
+def test_chapter_back_restarts_current_unless_near_its_start(model):
+    assert model.chapterSeekTarget(CHAPTERS, 120, -1) == 100
+    assert model.chapterSeekTarget(CHAPTERS, 101, -1) == 0
+    assert model.chapterSeekTarget(CHAPTERS, 1, -1) == 0
+    assert model.chapterSeekTarget([], 50, 1) == -1
+
+
+def test_speed_steps_and_clamps(model):
+    assert model.stepSpeed("1", 1) == "1.25"
+    assert model.stepSpeed("1", -1) == "0.8"
+    assert model.stepSpeed("0.8", -1) == "0.8"
+    assert model.stepSpeed("2", 1) == "2"
+    assert model.stepSpeed("1.75", 1) == "1.25"

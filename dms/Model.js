@@ -77,3 +77,28 @@ function formatDate(epochMs) {
   var d = new Date(epochMs)
   return months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear()
 }
+
+// ---------------------------------------------------------------- keyboard
+
+// Where n/p should seek, or -1 for "nowhere to go". Forward: the next
+// chapter's start. Back: the start of the current chapter, or of the previous
+// one when we're within 3s of the current start (the usual player behaviour).
+function chapterSeekTarget(chapters, position, direction) {
+  if (!chapters || chapters.length === 0) return -1
+  var pos = Number(position) || 0
+  var current = 0
+  for (var i = 0; i < chapters.length; i++) {
+    if (chapters[i].start <= pos + 0.5) current = i
+  }
+  if (direction > 0) return current + 1 < chapters.length ? chapters[current + 1].start : -1
+  if (pos - chapters[current].start > 3) return chapters[current].start
+  return current > 0 ? chapters[current - 1].start : 0
+}
+
+// [ and ] step through the speed buttons' values, stopping at either end.
+var speeds = ["0.8", "1", "1.25", "1.5", "2"]
+function stepSpeed(current, direction) {
+  var i = speeds.indexOf(String(current))
+  if (i === -1) i = speeds.indexOf("1")
+  return speeds[Math.max(0, Math.min(speeds.length - 1, i + direction))]
+}

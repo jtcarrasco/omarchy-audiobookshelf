@@ -46,8 +46,8 @@ Panel {
   readonly property bool hasPodcasts: root.podcastLibId !== ""
   readonly property var typeOptions: {
     var opts = []
-    if (root.hasBooks) opts.push({ value: "book", label: "Books" })
-    if (root.hasPodcasts) opts.push({ value: "podcast", label: "Podcasts" })
+    if (root.hasBooks) opts.push({ value: "book", label: "Books", tooltip: "Books (2)" })
+    if (root.hasPodcasts) opts.push({ value: "podcast", label: "Podcasts", tooltip: "Podcasts (3)" })
     return opts
   }
   readonly property string defaultType: root.hasBooks || !root.hasPodcasts ? "book" : "podcast"
@@ -59,6 +59,12 @@ Panel {
   property string filterText: ""
   property string filterType: "book"  // "book" | "podcast" | "" (search across both)
   property bool chaptersOpen: false
+  // Keyboard selection in the library/episode list. The highlight only shows
+  // once a key has moved it, so mouse users never see a stray selection.
+  property int cursor: 0
+  property bool keyNav: false
+  // Playback speed as the speed buttons' value, shared by both player layouts.
+  property string speed: "1"
   property bool notesOpen: false
 
   // Podcast drill-down: when set, the list shows this podcast's episodes.
@@ -143,6 +149,8 @@ Panel {
     root.episodes = []
     root.filterType = root.defaultType
     root.browsing = false
+    root.keyNav = false
+    root.cursor = 0
     searchField.text = ""
     itemList.positionViewAtBeginning()
   }
@@ -224,6 +232,106 @@ Panel {
       root.allItems = root.allItems.map(function(it) { return it.id === item.id ? patch(it) : it })
     }
   }
+
+  // ---- Keyboard (same keys as the FreshRSS plugin where they overlap) -------
+  readonly property var listModel: root.openPodcast ? root.episodes : root.visibleItems
+  readonly property bool listVisible: !root.settingsView && !root.onHome
+
+  onOpenPodcastChanged: { root.cursor = 0; itemList.positionViewAtBeginning() }
+  onFilterTypeChanged: root.cursor = 0
+  onFilterTextChanged: root.cursor = 0
+
+  function moveCursor(delta) {
+    if (!root.listVisible || root.listModel.length === 0) return
+    root.keyNav = true
+    root.cursor = Math.max(0, Math.min(root.listModel.length - 1, root.cursor + delta))
+    itemList.positionViewAtIndex(root.cursor, ListView.Contain)
+  }
+  function jumpTo(first) {
+    if (!root.listVisible || root.listModel.length === 0) return
+    root.keyNav = true
+    root.cursor = first ? 0 : root.listModel.length - 1
+    itemList.positionViewAtIndex(root.cursor, ListView.Contain)
+  }
+  // Enter: same as clicking the selected row.
+  function activateSelected() {
+    var it = root.listModel[root.cursor]
+    if (!root.listVisible || !it) return false
+    if (root.openPodcast) {
+      root.markEpisodeStarted(root.openPodcast, it)
+      player.playItem(root.openPodcast, it)
+    } else {
+      root.openItem(it)
+    }
+    return true
+  }
+  // r / f: same as right-clicking the selected row (r is FreshRSS's "mark
+  // read"; f for "finished").
+  function toggleFinishedSelected() {
+    var it = root.listModel[root.cursor]
+    if (!root.listVisible || !it) return
+    if (root.openPodcast) root.toggleFinished(root.openPodcast, it)
+    else if (it.mediaType !== "podcast") root.toggleFinished(it, null)
+  }
+  function skipChapter(direction) {
+    var target = Model.chapterSeekTarget(player.chapters, player.position, direction)
+    if (target >= 0) player.seekTo(target)
+  }
+  function setSpeed(value) {
+    root.speed = value
+    player.mpv.setSpeed(Number(value))
+  }
+  // Tab flips between Books and Podcasts while browsing.
+  function cycleType() {
+    if (!root.browsing || root.openPodcast || root.typeOptions.length < 2) return
+    root.filterType = root.filterType === "book" ? "podcast" : "book"
+  }
+  function handleKey(t) {
+    if (t === "/" || t === "a") searchField.forceActiveFocus()
+    else if (t === "q" || t === "R") root.refresh()
+    else if (t === "r" || t === "f") root.toggleFinishedSelected()
+    else if (t === "n") root.skipChapter(1)
+    else if (t === "p") root.skipChapter(-1)
+    else if (t === "[") root.setSpeed(Model.stepSpeed(root.speed, -1))
+    else if (t === "]") root.setSpeed(Model.stepSpeed(root.speed, 1))
+    else if (t === "c" && player.chapters.length > 0) root.chaptersOpen = !root.chaptersOpen
+    // , opens settings (the usual settings shortcut); again to go back.
+    else if (t === "," && root.configured) root.settingsView = !root.settingsView
+    // z: "zoom" between the dropdown and its own window (tmux's zoom key).
+    else if (t === "z") root.setExpanded(!root.expanded)
+    // 1-3 jump between the main views, like FreshRSS's view keys.
+    else if (t === "1" && root.configured) root.goHome()
+    else if (t === "2" && root.hasBooks) root.browseType("book")
+    else if (t === "3" && root.hasPodcasts) root.browseType("podcast")
+  }
+  // Home/End aren't handled by PanelKeyCatcher, so they bubble up to the slot.
+  function slotKey(event) {
+    if (event.key === Qt.Key_Home) { root.jumpTo(true); event.accepted = true }
+    else if (event.key === Qt.Key_End) { root.jumpTo(false); event.accepted = true }
+  }
+
+  readonly property var keyHelp: [
+    { key: "j / k", action: "Move down / up the list" },
+    { key: "Home / End", action: "First / last item" },
+    { key: "Enter", action: "Play, or open a podcast" },
+    { key: "r / f", action: "Toggle finished" },
+    { key: "1 / 2 / 3", action: "Home / Books / Podcasts" },
+    { key: "Tab", action: "Switch Books / Podcasts" },
+    { key: "Space", action: "Play / pause" },
+    { key: "h / l", action: "Back / forward 30s" },
+    { key: "n / p", action: "Next / previous chapter" },
+    { key: "[ / ]", action: "Slower / faster" },
+    { key: "c", action: "Show chapters" },
+    { key: "/ or a", action: "Search" },
+    { key: "q / R", action: "Refresh library" },
+    { key: "z", action: "Window / dropdown" },
+    { key: ",", action: "Settings" },
+    { key: "Esc", action: "Back, then close" },
+    { key: "Right-click", action: "Toggle finished on a row" }
+  ]
+  // One width for every key chip so the action column lines up.
+  readonly property real keyChipWidth: keyChipProbe.advanceWidth + Style.spacing.md * 2
+  TextMetrics { id: keyChipProbe; text: "Home / End"; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true }
 
   function goBack() {
     if (root.settingsView && root.configured) { root.settingsView = false; return true }
@@ -433,7 +541,7 @@ Panel {
       : panel.fittedContentHeight(root.panelHeight)
     padding: Style.space(20)
 
-    Item { id: dropdownSlot; anchors.fill: parent }
+    Item { id: dropdownSlot; anchors.fill: parent; Keys.onPressed: function(e) { root.slotKey(e) } }
   }
 
   FloatingWindow {
@@ -451,6 +559,7 @@ Panel {
       id: windowSlot
       anchors.fill: parent
       anchors.margins: Style.space(20)
+      Keys.onPressed: function(e) { root.slotKey(e) }
     }
   }
 
@@ -462,12 +571,22 @@ Panel {
     anchors.fill: parent
     blocked: searchField.activeFocus || urlField.activeFocus || userField.activeFocus
       || passField.activeFocus
-    onCloseRequested: { if (!root.goBack()) root.close() }
-    onActivateRequested: player.togglePause()
-    onTextKey: function(t) {
-      if (t === "/") searchField.forceActiveFocus()
-      else if (t === "r" || t === "R") root.refresh()
+    onCloseRequested: { if (!root.goBack()) { if (root.expanded) root.setExpanded(false); else root.close() } }
+    // j/k and the arrows move the list; h/l and left/right skip 30s.
+    onMoveRequested: function(dx, dy) {
+      if (dy !== 0) root.moveCursor(dy)
+      else if (dx !== 0) player.skip(dx * 30)
     }
+    // Enter emits return + activate; Space emits only activate. Enter plays the
+    // selected row (when there is a list), Space always plays/pauses.
+    property bool suppressActivate: false
+    onReturnRequested: suppressActivate = root.activateSelected()
+    onActivateRequested: {
+      if (suppressActivate) { suppressActivate = false; return }
+      player.togglePause()
+    }
+    onTabRequested: function(direction) { root.cycleType() }
+    onTextKey: function(t) { root.handleKey(t) }
 
     ColumnLayout {
       id: mainColumn
@@ -482,7 +601,7 @@ Panel {
         PanelActionButton {
           visible: root.openPodcast !== null || (root.settingsView && root.configured)
           iconText: "󰁍"
-          tooltipText: "Back"
+          tooltipText: "Back (Esc)"
           foreground: root.fg
           onClicked: root.goBack()
         }
@@ -532,7 +651,7 @@ Panel {
         Text {
           visible: root.settingsView || root.openPodcast !== null
           Layout.fillWidth: true
-          text: root.settingsView ? "Connect to Audiobookshelf"
+          text: root.settingsView ? (root.configured ? "Settings" : "Connect to Audiobookshelf")
             : (root.openPodcast ? root.openPodcast.media.metadata.title : "Audiobookshelf")
           color: root.fg
           font.family: root.fontFamily
@@ -552,7 +671,7 @@ Panel {
         PanelActionButton {
           visible: root.configured
           iconText: "󰋜"
-          tooltipText: "Library home"
+          tooltipText: "Library home (1)"
           foreground: root.fg
           onClicked: root.goHome()
         }
@@ -560,14 +679,14 @@ Panel {
         PanelActionButton {
           visible: root.configured && !root.settingsView
           iconText: "󰑐"
-          tooltipText: "Refresh library (r)"
+          tooltipText: "Refresh library (q / R)"
           foreground: root.fg
           onClicked: root.refresh()
         }
 
         PanelActionButton {
           iconText: root.expanded ? "󰊔" : "󰊓"
-          tooltipText: root.expanded ? "Back to the dropdown" : "Open in its own window"
+          tooltipText: root.expanded ? "Back to the dropdown (z)" : "Open in its own window (z)"
           foreground: root.fg
           onClicked: root.setExpanded(!root.expanded)
         }
@@ -575,119 +694,185 @@ Panel {
         PanelActionButton {
           visible: root.configured
           iconText: "󰒓"
-          tooltipText: "Connection settings"
+          tooltipText: "Settings (,)"
           foreground: root.fg
           onClicked: root.settingsView = !root.settingsView
         }
       }
 
       // ---- Connection form ------------------------------------------
-      ColumnLayout {
+      // Scrolls: with libraries and the keyboard reference it can be taller
+      // than the dropdown.
+      Flickable {
+        id: settingsFlick
         visible: root.settingsView
         Layout.fillWidth: true
-        spacing: Style.spacing.lg
+        Layout.fillHeight: true
+        clip: true
+        contentWidth: width
+        contentHeight: settingsColumn.implicitHeight
+        boundsBehavior: Flickable.StopAtBounds
 
-        Text {
-          Layout.fillWidth: true
-          wrapMode: Text.WordWrap
-          text: "Your password goes straight to the server to get a login token, which is stored in the system keyring. It's never saved to a file."
-          color: root.mutedFg
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-        }
+        ColumnLayout {
+          id: settingsColumn
+          width: settingsFlick.width
+          spacing: Style.spacing.lg
 
-        PanelSectionHeader { text: "SERVER"; foreground: root.fg; fontFamily: root.fontFamily }
-        TextField { id: urlField; Layout.fillWidth: true; placeholderText: "http://localhost:13378"; foreground: root.fg; font.family: root.fontFamily }
-
-        PanelSectionHeader { text: "ACCOUNT"; foreground: root.fg; fontFamily: root.fontFamily }
-        TextField { id: userField; Layout.fillWidth: true; placeholderText: "Username"; foreground: root.fg; font.family: root.fontFamily }
-        TextField { id: passField; Layout.fillWidth: true; placeholderText: "Password"; password: true; foreground: root.fg; font.family: root.fontFamily }
-
-        // Libraries are detected from the server at login; a picker only
-        // appears when there's more than one of a type to choose from.
-        PanelSectionHeader {
-          visible: root.configured && root.libraries.length > 0
-          text: "LIBRARIES"; foreground: root.fg; fontFamily: root.fontFamily
-        }
-        Text {
-          visible: root.configured && root.libraries.length > 0
-          Layout.fillWidth: true
-          wrapMode: Text.WordWrap
-          text: "Using " + (root.hasBooks ? "a books library" : "no books library")
-            + " and " + (root.hasPodcasts ? "a podcasts library" : "no podcasts library") + "."
-          color: root.mutedFg
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-        }
-        ButtonGroup {
-          visible: root.configured && root.librariesOfType("book").length > 1
-          options: root.librariesOfType("book")
-          value: root.bookLibId
-          foreground: root.fg
-          fontFamily: root.fontFamily
-          focusable: false
-          onChanged: function(v) { root.chooseLibrary("book", v) }
-        }
-        ButtonGroup {
-          visible: root.configured && root.librariesOfType("podcast").length > 1
-          options: root.librariesOfType("podcast")
-          value: root.podcastLibId
-          foreground: root.fg
-          fontFamily: root.fontFamily
-          focusable: false
-          onChanged: function(v) { root.chooseLibrary("podcast", v) }
-        }
-
-        Text {
-          Layout.fillWidth: true
-          visible: root.setupError !== ""
-          text: root.setupError
-          wrapMode: Text.WordWrap
-          color: Color.urgent
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-        }
-
-        Button {
-          text: root.setupBusy ? "Connecting..." : "Connect"
-          bordered: true
-          foreground: root.fg
-          fontFamily: root.fontFamily
-          onClicked: {
-            if (root.setupBusy) return
-            root.setupError = ""
-            root.setupBusy = true
-            root.pendingPassword = passField.text
-            mpvCheck.running = true
+          Text {
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "Your password goes straight to the server to get a login token, which is stored in the system keyring. It's never saved to a file."
+            color: root.mutedFg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
           }
-        }
 
-        PanelSeparator { visible: root.configured; Layout.fillWidth: true; foreground: root.fg }
+          PanelSectionHeader { text: "SERVER"; foreground: root.fg; fontFamily: root.fontFamily }
+          TextField { id: urlField; Layout.fillWidth: true; placeholderText: "http://localhost:13378"; foreground: root.fg; font.family: root.fontFamily }
 
-        Text {
-          visible: root.configured
-          Layout.fillWidth: true
-          wrapMode: Text.WordWrap
-          text: "Disconnect removes this server's login and settings from this computer. Your Audiobookshelf account and progress stay on the server."
-          color: root.mutedFg
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-        }
+          PanelSectionHeader { text: "ACCOUNT"; foreground: root.fg; fontFamily: root.fontFamily }
+          TextField { id: userField; Layout.fillWidth: true; placeholderText: "Username"; foreground: root.fg; font.family: root.fontFamily }
+          TextField { id: passField; Layout.fillWidth: true; placeholderText: "Password"; password: true; foreground: root.fg; font.family: root.fontFamily }
 
-        Button {
-          visible: root.configured
-          text: root.confirmDisconnect ? "Click again to disconnect" : "Disconnect"
-          bordered: true
-          foreground: root.confirmDisconnect ? Color.urgent : root.fg
-          fontFamily: root.fontFamily
-          onClicked: {
-            if (!root.confirmDisconnect) {
-              root.confirmDisconnect = true
-              confirmTimer.restart()
-              return
+          // Libraries are detected from the server at login; a picker only
+          // appears when there's more than one of a type to choose from.
+          PanelSectionHeader {
+            visible: root.configured && root.libraries.length > 0
+            text: "LIBRARIES"; foreground: root.fg; fontFamily: root.fontFamily
+          }
+          Text {
+            visible: root.configured && root.libraries.length > 0
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "Using " + (root.hasBooks ? "a books library" : "no books library")
+              + " and " + (root.hasPodcasts ? "a podcasts library" : "no podcasts library") + "."
+            color: root.mutedFg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+          ButtonGroup {
+            visible: root.configured && root.librariesOfType("book").length > 1
+            options: root.librariesOfType("book")
+            value: root.bookLibId
+            foreground: root.fg
+            fontFamily: root.fontFamily
+            focusable: false
+            onChanged: function(v) { root.chooseLibrary("book", v) }
+          }
+          ButtonGroup {
+            visible: root.configured && root.librariesOfType("podcast").length > 1
+            options: root.librariesOfType("podcast")
+            value: root.podcastLibId
+            foreground: root.fg
+            fontFamily: root.fontFamily
+            focusable: false
+            onChanged: function(v) { root.chooseLibrary("podcast", v) }
+          }
+
+          Text {
+            Layout.fillWidth: true
+            visible: root.setupError !== ""
+            text: root.setupError
+            wrapMode: Text.WordWrap
+            color: Color.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Button {
+            text: root.setupBusy ? "Connecting..." : "Connect"
+            bordered: true
+            foreground: root.fg
+            fontFamily: root.fontFamily
+            onClicked: {
+              if (root.setupBusy) return
+              root.setupError = ""
+              root.setupBusy = true
+              root.pendingPassword = passField.text
+              mpvCheck.running = true
             }
-            confirmTimer.stop()
-            disconnectProcess.running = true
+          }
+
+          PanelSeparator { visible: root.configured; Layout.fillWidth: true; foreground: root.fg }
+
+          Text {
+            visible: root.configured
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+            text: "Disconnect removes this server's login and settings from this computer. Your Audiobookshelf account and progress stay on the server."
+            color: root.mutedFg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          Button {
+            visible: root.configured
+            text: root.confirmDisconnect ? "Click again to disconnect" : "Disconnect"
+            bordered: true
+            foreground: root.confirmDisconnect ? Color.urgent : root.fg
+            fontFamily: root.fontFamily
+            onClicked: {
+              if (!root.confirmDisconnect) {
+                root.confirmDisconnect = true
+                confirmTimer.restart()
+                return
+              }
+              confirmTimer.stop()
+              disconnectProcess.running = true
+            }
+          }
+
+          // Keyboard reference: the same keys as the FreshRSS plugin where
+          // they overlap.
+          PanelSeparator { Layout.fillWidth: true; foreground: root.fg }
+          PanelSectionHeader { text: "KEYBOARD"; foreground: root.fg; fontFamily: root.fontFamily }
+          GridLayout {
+            Layout.fillWidth: true
+            columns: 4
+            columnSpacing: Style.spacing.lg
+            rowSpacing: Style.spacing.sm
+            Repeater {
+              model: root.keyHelp
+              delegate: Item {
+                required property var modelData
+                // Each entry fills two grid cells: a key chip, then its action.
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                implicitHeight: Math.max(keyChip.height, actionText.implicitHeight)
+                Rectangle {
+                  id: keyChip
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: root.keyChipWidth
+                  height: keyText.implicitHeight + Style.spacing.xs * 2
+                  radius: Style.cornerRadius
+                  color: "transparent"
+                  border.width: 1
+                  border.color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.25)
+                  Text {
+                    id: keyText
+                    anchors.centerIn: parent
+                    text: modelData.key
+                    color: Color.accent
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+                }
+                Text {
+                  id: actionText
+                  anchors.left: keyChip.right
+                  anchors.leftMargin: Style.spacing.md
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.action
+                  elide: Text.ElideRight
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                }
+              }
+            }
           }
         }
       }
@@ -761,7 +946,7 @@ Panel {
         TextField {
           id: searchField
           Layout.fillWidth: true
-          placeholderText: "Search title or author  (/)"
+          placeholderText: "Search title or author  (/ or a)"
           foreground: root.fg
           font.family: root.fontFamily
           onTextChanged: {
@@ -810,6 +995,7 @@ Panel {
         model: root.openPodcast ? root.episodes : root.visibleItems
         delegate: ListRow {
           width: itemList.width
+          selected: root.keyNav && index === root.cursor
           cover: root.openPodcast ? "" : (modelData.coverUrl || "")
           glyph: root.openPodcast ? "󰎇" : (modelData.mediaType === "podcast" ? "󰦔" : "󰂺")
           primary: root.openPodcast ? modelData.title : (modelData.media.metadata.title || "")
@@ -835,7 +1021,7 @@ Panel {
           // Podcast shows have no finished state of their own; books and
           // episodes toggle on right-click.
           tooltip: (root.openPodcast || modelData.mediaType !== "podcast")
-            ? (finished ? "Right-click to mark as not finished (restarts from 0:00)" : "Right-click to mark as finished")
+            ? (finished ? "Right-click or r / f to mark as not finished (restarts from 0:00)" : "Right-click or r / f to mark as finished")
             : ""
           onContextActivated: {
             if (root.openPodcast) root.toggleFinished(root.openPodcast, modelData)
@@ -854,7 +1040,7 @@ Panel {
 
       // Keeps the form and now-playing sections pinned to the top when the
       // list is hidden (settings view).
-      Item { Layout.fillHeight: true; visible: root.settingsView || root.onHome }
+      Item { Layout.fillHeight: true; visible: root.onHome }
     }
   }
 
@@ -1002,35 +1188,38 @@ Panel {
       spacing: Style.spacing.lg
 
       Item { visible: np.large; Layout.fillWidth: true }
-      PanelActionButton { iconText: "󰑟"; tooltipText: "Back 30s"; foreground: root.fg; fontSize: np.large ? Style.font.iconLarge * 1.4 : Style.font.icon; onClicked: player.skip(-30) }
+      PanelActionButton { iconText: "󰑟"; tooltipText: "Back 30s (h)"; foreground: root.fg; fontSize: np.large ? Style.font.iconLarge * 1.4 : Style.font.icon; onClicked: player.skip(-30) }
       PanelActionButton {
         iconText: player.playing ? "󰏤" : "󰐊"
-        tooltipText: player.playing ? "Pause (space)" : "Play (space)"
+        tooltipText: player.playing ? "Pause (Space)" : "Play (Space)"
         foreground: root.fg
         fontSize: np.large ? Style.font.iconLarge * 2.2 : Style.font.iconLarge
         onClicked: player.togglePause()
       }
-      PanelActionButton { iconText: "󰈑"; tooltipText: "Forward 30s"; foreground: root.fg; fontSize: np.large ? Style.font.iconLarge * 1.4 : Style.font.icon; onClicked: player.skip(30) }
+      PanelActionButton { iconText: "󰈑"; tooltipText: "Forward 30s (l)"; foreground: root.fg; fontSize: np.large ? Style.font.iconLarge * 1.4 : Style.font.icon; onClicked: player.skip(30) }
 
       Item { Layout.fillWidth: true }
 
       ButtonGroup {
         options: [
-          { value: "0.8", label: "0.8x" }, { value: "1", label: "1x" },
-          { value: "1.25", label: "1.25x" }, { value: "1.5", label: "1.5x" },
-          { value: "2", label: "2x" }
+          { value: "0.8", label: "0.8x", tooltip: "Speed: [ slower, ] faster" },
+          { value: "1", label: "1x", tooltip: "Speed: [ slower, ] faster" },
+          { value: "1.25", label: "1.25x", tooltip: "Speed: [ slower, ] faster" },
+          { value: "1.5", label: "1.5x", tooltip: "Speed: [ slower, ] faster" },
+          { value: "2", label: "2x", tooltip: "Speed: [ slower, ] faster" }
         ]
-        value: "1"
+        value: root.speed
         foreground: root.fg
         fontFamily: root.fontFamily
         fontSize: Style.font.bodySmall
         focusable: false
-        onChanged: function(v) { value = v; player.mpv.setSpeed(Number(v)) }
+        onChanged: function(v) { root.setSpeed(v) }
       }
     }
 
     Button {
       visible: player.chapters.length > 0
+      tooltipText: "Show or hide chapters (c)"
       text: (root.chaptersOpen ? "Hide chapters" : "Chapters")
         + (player.currentChapterIndex >= 0
            ? "  ·  " + player.chapters[player.currentChapterIndex].title : "")
@@ -1117,6 +1306,7 @@ Panel {
     property bool finished: false
     property string cover: ""
     property string tooltip: ""
+    property bool selected: false
     signal activated()
     signal contextActivated()
 
@@ -1132,7 +1322,20 @@ Panel {
       anchors.fill: parent
       radius: Style.cornerRadius
       color: row.current ? Style.selectedFillFor(root.fg, Color.accent)
-        : (mouse.containsMouse ? Style.hoverFillFor(root.fg, Color.accent) : "transparent")
+        : ((mouse.containsMouse || row.selected) ? Style.hoverFillFor(root.fg, Color.accent) : "transparent")
+    }
+
+    // Keyboard selection: a thin accent bar on the left edge.
+    Rectangle {
+      visible: row.selected
+      anchors.left: parent.left
+      anchors.top: parent.top
+      anchors.bottom: parent.bottom
+      anchors.topMargin: Style.spacing.xs
+      anchors.bottomMargin: Style.spacing.xs
+      width: Math.max(2, Style.space(3))
+      radius: width / 2
+      color: Color.accent
     }
 
     Rectangle {
