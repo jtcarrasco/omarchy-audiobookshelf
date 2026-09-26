@@ -43,7 +43,7 @@ control playback from a dropdown that matches your Omarchy theme.
 ## Install
 
 ```
-omarchy plugin add https://github.com/jtcarrasco/omarchy-audiobookshelf --enable
+omarchy plugin add https://github.com/jtcarrasco/audiobookshelf-player --enable
 ```
 
 If the headphones icon doesn't appear, add **Audiobookshelf** to your bar in the
